@@ -1,0 +1,54 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+
+# Environment
+.env
+
+# Data directories
+data/pdfs/*
+data/processed/*
+data/faiss_index/*
+!data/pdfs/.gitkeep
+!data/processed/.gitkeep
+
+# Cache
+cache/
+*.cache
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.bak
+temp/
+
+# Model files
+*.bin
+*.pkl
+*.pth
+*.h5
+
+# Index files
+*.faiss
+*.meta
