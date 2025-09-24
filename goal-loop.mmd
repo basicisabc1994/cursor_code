@@ -2,19 +2,29 @@ flowchart TD
   A["Start"] --> B["Select agent framework: autogen / agentsdk / low-abstraction"]
   B --> C["Construct goal tree"]
   C --> D["Assign resource bounds (time, cost, tokens, policies)"]
-  D --> E{"Goals remaining?"}
+  D --> D1["Register user checkpoints"]
+  D1 --> D2["Initialize guardrails (policy, permissions, sandbox, audit)"]
+  D2 --> E{"Goals remaining?"}
   E -- No --> Z["Stop: No progress or all done"]
   E -- Yes --> F["Select next goal by highest yield/feasibility"]
 
   subgraph GoalLoop["Per-Goal Loop"]
-    F --> G["Plan"]
-    G --> H{"Problem well-defined?"}
+    F --> F0["Manage resource bounds"]
+    F0 --> F1{"Stop conditions triggered?"}
+    F1 -- Yes --> Z
+    F1 -- No --> G["Plan"]
+
+    %% Checkpoint after plan creation
+    G --> CP0["User checkpoint: plan_created"]
+    CP0 --> H{"Problem well-defined?"}
+
     H -- No --> I["Ask user OR Research trusted sources"]
     I --> J{"Sufficient info?"}
     J -- No --> K["Stop & wait for user input"]
     J -- Yes --> L{"Auto mode?"}
     L -- Yes --> M["Proceed to next highest-yield actionable subtask"]
     L -- No --> N["Request minimal clarifications"]
+
     H -- Yes --> O{"Trusted sources + many worked examples?"}
     O -- No --> P["Gather examples / ask user for examples"]
     O -- Yes --> Q["Analyze atomicity; too hard?"]
@@ -24,10 +34,22 @@ flowchart TD
     T --> U["Select workflow (single vs multi-agent; steps/order)"]
     U --> V["Get context (workspace, state, prior artifacts)"]
     V --> W["Retrieve RAG/research data"]
-    W --> X{"Final check: clear steps? solvable? evaluable?"}
-    X -- No --> Y["Emit human tasks or fetch more info; possibly decompose"]
-    X -- Yes --> AA["Solve (execute plan)"]
-    AA --> AB["Review (eval criteria, tests, validation)"]
+    W --> W2{"RAG data valid?"}
+    W2 -- No --> Y["Emit human tasks or fetch more info; possibly decompose"]
+    W2 -- Yes --> X{"Final check: clear steps? solvable? evaluable?"}
+    X -- No --> Y
+
+    %% Pre-execution checkpoint and guardrails
+    X -- Yes --> CP1["User checkpoint: pre_execution"]
+    CP1 --> G1["Initialize/verify guardrails for execution"]
+    G1 --> AA["Solve (execute plan)"]
+
+    %% Retry on transient failure before review
+    AA --> TF{"Transient failure?"}
+    TF -- Yes --> BR["Backoff + retry"]
+    BR --> AA
+    TF -- No --> AB["Review (eval criteria, tests, validation)"]
+
     AB --> AC{"Passed?"}
     AC -- Yes --> AD["Forward dependencies; mark goal done"]
     AC -- No --> AE["Root cause analysis; adjust plan/constraints"]
@@ -46,3 +68,6 @@ flowchart TD
   Y --> F
   K --> Z
 
+  %% Notes:
+  %% - Checkpoints can pause or require approval; failing checkpoints route to K or Y.
+  %% - Guardrails include policy enforcement, tool permissions, sandboxing, audit logging.
