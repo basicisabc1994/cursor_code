@@ -25,7 +25,7 @@ class FAISSVectorStore:
             dimension: Embedding dimension
             index_path: Path to save/load index
         """
-        self.dimension = dimension or settings.embedding_dimension
+        self.dimension = int(dimension or settings.embedding_dimension)
         self.index_path = index_path or settings.faiss_index_path
         
         # Initialize FAISS index
@@ -59,7 +59,15 @@ class FAISSVectorStore:
         if self.index is None:
             self.create_index()
         
-        # Normalize embeddings for cosine similarity
+        # Ensure correct dtype and shape then normalize for cosine similarity
+        if embeddings is None or len(embeddings) == 0:
+            return
+        if embeddings.dtype != np.float32:
+            embeddings = embeddings.astype(np.float32)
+        if embeddings.ndim == 1:
+            embeddings = embeddings.reshape(1, -1)
+        if embeddings.shape[1] != self.dimension:
+            raise ValueError(f"Embedding dimension mismatch: got {embeddings.shape[1]}, expected {self.dimension}")
         faiss.normalize_L2(embeddings)
         
         # Generate IDs for documents
@@ -95,6 +103,8 @@ class FAISSVectorStore:
         
         # Normalize query embedding
         query_embedding = query_embedding.reshape(1, -1).astype('float32')
+        if query_embedding.shape[1] != self.dimension:
+            raise ValueError(f"Query embedding dimension mismatch: got {query_embedding.shape[1]}, expected {self.dimension}")
         faiss.normalize_L2(query_embedding)
         
         # Search

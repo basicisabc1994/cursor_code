@@ -20,7 +20,9 @@ class RAGPipeline:
         self,
         use_local_embeddings: bool = False,
         embedding_model: Optional[str] = None,
-        index_path: Optional[Path] = None
+        index_path: Optional[Path] = None,
+        llm_provider: Optional[str] = None,
+        llm_model: Optional[str] = None
     ):
         """Initialize RAG pipeline.
         
@@ -39,15 +41,20 @@ class RAGPipeline:
         else:
             self.embedder = NomicEmbeddings(model=embedding_model)
         
-        # Initialize vector store
-        self.vector_store = FAISSVectorStore(index_path=index_path)
+        # Initialize vector store with correct dimension from embedder
+        embed_dim = getattr(self.embedder, "get_dimension", lambda: settings.embedding_dimension)()
+        self.vector_store = FAISSVectorStore(dimension=embed_dim, index_path=index_path)
+
+        # Optional LLM settings
+        self.llm_provider = (llm_provider or settings.llm_provider).lower() if hasattr(settings, 'llm_provider') else (llm_provider or None)
+        self.llm_model = llm_model or getattr(settings, 'llm_model', None)
         
         # Store processed documents
         self.processed_documents = []
         
         logger.info("RAG Pipeline initialized")
     
-    def process_pdf(self, file_path: str, save_markdown: bool = True) -> ParsedDocument:
+    def process_pdf(self, file_path: str, save_markdown: bool = True, output_dir: Optional[str] = None) -> ParsedDocument:
         """Process a single PDF file.
         
         Args:
@@ -62,7 +69,7 @@ class RAGPipeline:
         
         # Save markdown if requested
         if save_markdown:
-            self.pdf_parser.save_markdown(parsed_doc)
+            self.pdf_parser.save_markdown(parsed_doc, output_dir=output_dir or str(Path("./data/processed")))
         
         # Split into chunks
         chunks = self.text_splitter.split_markdown(
@@ -84,7 +91,7 @@ class RAGPipeline:
         
         return parsed_doc
     
-    def process_directory(self, directory_path: str, pattern: str = "*.pdf", save_markdown: bool = True) -> List[ParsedDocument]:
+    def process_directory(self, directory_path: str, pattern: str = "*.pdf", save_markdown: bool = True, output_dir: Optional[str] = None) -> List[ParsedDocument]:
         """Process all PDFs in a directory.
         
         Args:
@@ -105,7 +112,7 @@ class RAGPipeline:
         for doc in parsed_docs:
             # Save markdown if requested
             if save_markdown:
-                self.pdf_parser.save_markdown(doc)
+                self.pdf_parser.save_markdown(doc, output_dir=output_dir or str(Path("./data/processed")))
             
             # Split into chunks
             chunks = self.text_splitter.split_markdown(
@@ -190,9 +197,24 @@ class RAGPipeline:
                 for result in search_results
             ]
         
-        # Note: For actual answer generation, you would integrate with an LLM here
-        # For now, we return the retrieved context
-        response["answer"] = f"Based on the retrieved documents, here are the {len(search_results)} most relevant passages to your question."
+        # Optionally generate an answer using an LLM (supports local Ollama)
+        answer = None
+        try:
+            if self.llm_provider == 'ollama' and self.llm_model:
+                import ollama
+                prompt = (
+                    "You are a helpful assistant. Use the provided context to answer the question.\n"
+                    f"Question: {question}\n\nContext:\n{context}\n\nAnswer concisely:" 
+                )
+                res = ollama.generate(model=self.llm_model, prompt=prompt)
+                answer = res.get('response')
+        except Exception as e:
+            logger.warning(f"LLM generation failed: {e}")
+
+        if not answer:
+            answer = f"Retrieved {len(search_results)} relevant passages. Provide an LLM to generate an answer."
+
+        response["answer"] = answer
         
         return response
     

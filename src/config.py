@@ -28,6 +28,10 @@ class Settings(BaseSettings):
     
     # RAG Configuration
     top_k_results: int = Field(default=5, env="TOP_K_RESULTS")
+
+    # LLM Configuration
+    llm_provider: str = Field(default="", env="LLM_PROVIDER")  # e.g., 'ollama'
+    llm_model: str = Field(default="", env="LLM_MODEL")        # e.g., 'llama3.2'
     
     class Config:
         env_file = ".env"

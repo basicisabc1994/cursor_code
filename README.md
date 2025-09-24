@@ -9,6 +9,7 @@ A comprehensive pipeline for parsing PDF documents using IBM Granite's Docling m
 - **Smart Chunking**: Intelligent text splitting that preserves document structure
 - **Vector Search**: Fast similarity search using FAISS
 - **Embeddings**: Support for both Nomic cloud embeddings and local models
+- **LLM Integration**: Optional local LLM answering via Ollama (no paid API required)
 - **CLI Interface**: Rich command-line interface with interactive search
 - **Batch Processing**: Process entire directories of PDFs
 
@@ -25,10 +26,13 @@ cd pdf-rag-pipeline
 pip install -r requirements.txt
 ```
 
-3. Set up environment variables:
+3. Set up environment variables (optional):
 ```bash
 cp .env.example .env
-# Edit .env and add your Nomic API key
+# Edit .env and add your Nomic API key (optional)
+# Optionally set local LLM defaults
+# LLM_PROVIDER=ollama
+# LLM_MODEL=llama3.2
 ```
 
 ## Configuration
@@ -62,8 +66,8 @@ python cli.py parse document.pdf --use-local
 # Interactive search
 python cli.py search
 
-# Query with questions
-python cli.py query
+# Query with questions (generate answer with local Ollama)
+python cli.py query --llm-provider ollama --llm-model llama3.2
 
 # Show index statistics
 python cli.py stats
@@ -167,6 +171,36 @@ python cli.py parse document.pdf --use-local
 ```
 
 This will use the `all-MiniLM-L6-v2` model by default.
+
+### Using a Local LLM with Ollama
+
+Ensure Ollama is installed and a model is available (`ollama pull llama3.2`). Then:
+
+```bash
+python cli.py query --llm-provider ollama --llm-model llama3.2
+```
+
+Or set defaults in `.env`:
+
+```env
+LLM_PROVIDER=ollama
+LLM_MODEL=llama3.2
+```
+
+You can also use the Python API and the native `ollama` client directly:
+
+```python
+import ollama
+
+response = ollama.generate(model='llama3.2', prompt='Why is the sky blue?')
+print(response['response'])
+
+messages = [
+    {'role': 'user', 'content': 'Why is the sky blue?'}
+]
+chat_response = ollama.chat(model='llama3.2', messages=messages)
+print(chat_response['message']['content'])
+```
 
 ### Custom Chunking
 
