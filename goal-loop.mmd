@@ -1,0 +1,48 @@
+flowchart TD
+  A["Start"] --> B["Select agent framework: autogen / agentsdk / low-abstraction"]
+  B --> C["Construct goal tree"]
+  C --> D["Assign resource bounds (time, cost, tokens, policies)"]
+  D --> E{"Goals remaining?"}
+  E -- No --> Z["Stop: No progress or all done"]
+  E -- Yes --> F["Select next goal by highest yield/feasibility"]
+
+  subgraph GoalLoop["Per-Goal Loop"]
+    F --> G["Plan"]
+    G --> H{"Problem well-defined?"}
+    H -- No --> I["Ask user OR Research trusted sources"]
+    I --> J{"Sufficient info?"}
+    J -- No --> K["Stop & wait for user input"]
+    J -- Yes --> L{"Auto mode?"}
+    L -- Yes --> M["Proceed to next highest-yield actionable subtask"]
+    L -- No --> N["Request minimal clarifications"]
+    H -- Yes --> O{"Trusted sources + many worked examples?"}
+    O -- No --> P["Gather examples / ask user for examples"]
+    O -- Yes --> Q["Analyze atomicity; too hard?"]
+    Q -- Yes --> R["Decompose; repeat planning"]
+    Q -- No --> S["Set constraints (quality, safety, acceptance)"]
+    S --> T["Select tools"]
+    T --> U["Select workflow (single vs multi-agent; steps/order)"]
+    U --> V["Get context (workspace, state, prior artifacts)"]
+    V --> W["Retrieve RAG/research data"]
+    W --> X{"Final check: clear steps? solvable? evaluable?"}
+    X -- No --> Y["Emit human tasks or fetch more info; possibly decompose"]
+    X -- Yes --> AA["Solve (execute plan)"]
+    AA --> AB["Review (eval criteria, tests, validation)"]
+    AB --> AC{"Passed?"}
+    AC -- Yes --> AD["Forward dependencies; mark goal done"]
+    AC -- No --> AE["Root cause analysis; adjust plan/constraints"]
+    AE --> AF{"Too hard?"}
+    AF -- Yes --> R
+    AF -- No --> AA
+    R --> G
+    AD --> AG{"Step up to parent goal?"}
+    AG -- Yes --> F
+    AG -- No --> E
+  end
+
+  M --> S
+  N --> S
+  P --> S
+  Y --> F
+  K --> Z
+
