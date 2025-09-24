@@ -70,7 +70,7 @@ def parse(pdf_path, save_markdown, output_dir, use_local):
             if pdf_path.is_file():
                 # Process single PDF
                 task = progress.add_task(f"[cyan]Processing {pdf_path.name}...", total=None)
-                parsed_doc = pipeline.process_pdf(str(pdf_path), save_markdown=save_markdown)
+                parsed_doc = pipeline.process_pdf(str(pdf_path), save_markdown=save_markdown, output_dir=str(output_dir))
                 progress.update(task, completed=True)
                 
                 # Display results
@@ -92,7 +92,7 @@ def parse(pdf_path, save_markdown, output_dir, use_local):
             elif pdf_path.is_dir():
                 # Process directory
                 task = progress.add_task(f"[cyan]Processing PDFs in {pdf_path}...", total=None)
-                parsed_docs = pipeline.process_directory(str(pdf_path), save_markdown=save_markdown)
+                parsed_docs = pipeline.process_directory(str(pdf_path), save_markdown=save_markdown, output_dir=str(output_dir))
                 progress.update(task, completed=True)
                 
                 # Display results
@@ -135,12 +135,14 @@ def parse(pdf_path, save_markdown, output_dir, use_local):
 @cli.command()
 @click.option('--k', default=5, help='Number of results to return')
 @click.option('--use-local', is_flag=True, help='Use local embeddings instead of Nomic')
-def search(k, use_local):
+@click.option('--llm-provider', type=str, default=None, help="LLM provider (e.g., 'ollama')")
+@click.option('--llm-model', type=str, default=None, help="LLM model name (e.g., 'llama3.2')")
+def search(k, use_local, llm_provider, llm_model):
     """Interactive search interface."""
     try:
         # Initialize pipeline
         console.print("[cyan]Loading index...[/cyan]")
-        pipeline = RAGPipeline(use_local_embeddings=use_local)
+        pipeline = RAGPipeline(use_local_embeddings=use_local, llm_provider=llm_provider, llm_model=llm_model)
         
         # Check if index exists
         stats = pipeline.get_statistics()
@@ -197,12 +199,14 @@ def search(k, use_local):
 @cli.command()
 @click.option('--k', default=5, help='Number of documents to retrieve')
 @click.option('--use-local', is_flag=True, help='Use local embeddings instead of Nomic')
-def query(k, use_local):
+@click.option('--llm-provider', type=str, default=None, help="LLM provider (e.g., 'ollama')")
+@click.option('--llm-model', type=str, default=None, help="LLM model name (e.g., 'llama3.2')")
+def query(k, use_local, llm_provider, llm_model):
     """Query the RAG system with questions."""
     try:
         # Initialize pipeline
         console.print("[cyan]Loading index...[/cyan]")
-        pipeline = RAGPipeline(use_local_embeddings=use_local)
+        pipeline = RAGPipeline(use_local_embeddings=use_local, llm_provider=llm_provider, llm_model=llm_model)
         
         # Check if index exists
         stats = pipeline.get_statistics()
@@ -227,6 +231,7 @@ def query(k, use_local):
             # Display response
             console.print(f"\n[bold]Question:[/bold] {response['question']}")
             console.print(f"[bold]Retrieved {response['num_results']} relevant passages[/bold]\n")
+            console.print(f"[bold]Answer:[/bold] {response.get('answer', '')}\n")
             
             # Show sources
             if 'sources' in response:

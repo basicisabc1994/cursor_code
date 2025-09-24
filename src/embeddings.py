@@ -25,6 +25,7 @@ class NomicEmbeddings:
         """
         self.api_key = api_key or settings.nomic_api_key
         self.model = model or settings.embedding_model
+        self.dimension = settings.embedding_dimension
         
         if not self.api_key:
             raise ValueError("Nomic API key is required. Set NOMIC_API_KEY in .env file")
@@ -53,10 +54,10 @@ class NomicEmbeddings:
                 texts=texts,
                 model=self.model,
                 task_type=task_type,
-                dimensionality=settings.embedding_dimension
+                dimensionality=self.dimension
             )
             
-            embeddings = np.array(result['embeddings'])
+            embeddings = np.array(result['embeddings'], dtype=np.float32)
             logger.info(f"Generated embeddings for {len(texts)} texts")
             
             return embeddings
@@ -100,6 +101,10 @@ class NomicEmbeddings:
         texts = [chunk.content for chunk in chunks]
         return self.embed_documents(texts)
 
+    def get_dimension(self) -> int:
+        """Return the embedding dimension used by this embedder."""
+        return int(self.dimension)
+
 
 class LocalEmbeddings:
     """Alternative: Generate embeddings using local sentence-transformers."""
@@ -114,6 +119,7 @@ class LocalEmbeddings:
         
         self.model_name = model_name
         self.model = SentenceTransformer(model_name)
+        self.dimension = int(self.model.get_sentence_embedding_dimension())
         
         logger.info(f"Initialized local embeddings with model: {model_name}")
     
@@ -129,7 +135,7 @@ class LocalEmbeddings:
         if not texts:
             return np.array([])
         
-        embeddings = self.model.encode(texts, convert_to_numpy=True)
+        embeddings = self.model.encode(texts, convert_to_numpy=True).astype(np.float32)
         logger.info(f"Generated embeddings for {len(texts)} texts")
         
         return embeddings
@@ -143,7 +149,7 @@ class LocalEmbeddings:
         Returns:
             Numpy array of embedding
         """
-        return self.model.encode([query], convert_to_numpy=True)[0]
+        return self.model.encode([query], convert_to_numpy=True)[0].astype(np.float32)
     
     def embed_documents(self, documents: List[str]) -> np.ndarray:
         """Generate embeddings for documents.
@@ -167,3 +173,7 @@ class LocalEmbeddings:
         """
         texts = [chunk.content for chunk in chunks]
         return self.embed_documents(texts)
+
+    def get_dimension(self) -> int:
+        """Return the embedding dimension produced by the local model."""
+        return int(self.dimension)
