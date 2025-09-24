@@ -12,6 +12,7 @@ BEGIN
     iteration_count = 0
     last_progress_tick = Now()
     max_iterations = resource_bounds.max_iterations
+    resource_bounds.user_checkpoints = RegisterUserCheckpoints(GetUserDefinedCheckpoints(), resource_bounds)
     
     // Phase 2: Main execution loop
     WHILE HasRemainingGoals(goal_tree) DO
@@ -25,11 +26,19 @@ BEGIN
             BREAK
         END IF
 
+        // User-defined checkpoint at loop iteration start
+        decision = EvaluateUserCheckpoints("loop_iteration_start", { goal_tree, iteration_count }, resource_bounds.user_checkpoints, resource_bounds)
+        IF decision = REJECTED OR decision = TIMEOUT THEN BREAK END IF
+
         current_goal = SelectNextGoal(goal_tree, yield_feasibility_criteria)
         
         IF current_goal IS NULL THEN
             BREAK  // No progress possible or all done
         END IF
+
+        // User-defined checkpoint on goal selection
+        decision = EvaluateUserCheckpoints("goal_selected", { current_goal }, resource_bounds.user_checkpoints, resource_bounds)
+        IF decision = REJECTED OR decision = TIMEOUT THEN BREAK END IF
         
         result = ExecuteGoalLoop(current_goal, framework, resource_bounds, 0)
         result = NormalizeResult(result)
@@ -44,6 +53,10 @@ BEGIN
             END IF
         END IF
         
+        // User-defined checkpoint after goal execution
+        decision = EvaluateUserCheckpoints("after_goal_execution", { current_goal, result }, resource_bounds.user_checkpoints, resource_bounds)
+        IF decision = REJECTED OR decision = TIMEOUT THEN BREAK END IF
+
         progress_made = UpdateGoalTree(goal_tree, current_goal, result)
         IF progress_made THEN
             last_progress_tick = Now()
@@ -132,6 +145,12 @@ BEGIN
 
     // Planning Phase
     plan = CreatePlan(goal)
+
+    // User-defined checkpoint on plan creation
+    decision = EvaluateUserCheckpoints("plan_created", { goal, plan }, bounds.user_checkpoints, bounds)
+    IF decision = REJECTED OR decision = TIMEOUT THEN
+        RETURN { status: STOP_AND_WAIT, error: "checkpoint_halt_on_plan_created" }
+    END IF
     
     IF NOT IsWellDefined(plan) THEN
         info_result = GatherInformation(goal, plan)
@@ -163,6 +182,7 @@ BEGIN
     
     // Execution Setup
     constraints = SetConstraints(plan, bounds)
+    constraints.user_checkpoints = bounds.user_checkpoints
     tools = SelectTools(plan, constraints)
     workflow = SelectWorkflow(plan, framework)
     context = GetContext(workspace, state, artifacts)
@@ -178,6 +198,11 @@ BEGIN
     END IF
     
     // Execution Phase
+    decision = EvaluateUserCheckpoints("pre_execution", { goal, plan, constraints }, constraints.user_checkpoints, constraints)
+    IF decision = REJECTED OR decision = TIMEOUT THEN
+        RETURN { status: STOP_AND_WAIT, error: "checkpoint_halt_pre_execution" }
+    END IF
+
     retry_attempts = 0
     execution_result = ExecutePlan(plan, tools, workflow, constraints)
     WHILE IsTransientFailure(execution_result) AND retry_attempts < bounds.retry_limit DO
@@ -192,6 +217,10 @@ BEGIN
     IF review_result = PASSED THEN
         ForwardDependencies(goal, execution_result)
         MarkGoalComplete(goal)
+        decision = EvaluateUserCheckpoints("post_review_passed", { goal, execution_result, review_result }, constraints.user_checkpoints, constraints)
+        IF decision = REJECTED OR decision = TIMEOUT THEN
+            RETURN { status: STOP_AND_WAIT, error: "checkpoint_halt_post_review" }
+        END IF
         RETURN { status: SUCCESS, data: execution_result }
     ELSE
         root_cause = AnalyzeFailure(execution_result, review_result)
@@ -244,6 +273,10 @@ BEGIN
     step_index = 0
     FOR EACH step IN plan.steps DO
         step_index = step_index + 1
+        decision = EvaluateUserCheckpoints("before_step", { plan, step, step_index }, constraints.user_checkpoints, constraints)
+        IF decision = REJECTED OR decision = TIMEOUT THEN
+            RETURN ExecutionFailure(step, "checkpoint_halt_before_step")
+        END IF
         IF NOT HasToolPermissionForStep(step, constraints.tool_permissions) THEN
             RETURN ExecutionFailure(step, "permission_denied")
         END IF
@@ -280,8 +313,18 @@ BEGIN
         IF IsCheckpoint(step, constraints) OR ShouldEmitPeriodicSummary(step_index, constraints) THEN
             EmitPeriodicSummary(plan, step, step_result)
         END IF
+
+        decision = EvaluateUserCheckpoints("after_step", { plan, step, step_index, step_result }, constraints.user_checkpoints, constraints)
+        IF decision = REJECTED OR decision = TIMEOUT THEN
+            RETURN ExecutionFailure(step, "checkpoint_halt_after_step")
+        END IF
     END FOR
     
+    decision = EvaluateUserCheckpoints("post_execution", { plan }, constraints.user_checkpoints, constraints)
+    IF decision = REJECTED OR decision = TIMEOUT THEN
+        RETURN ExecutionFailure("plan", "checkpoint_halt_post_execution")
+    END IF
+
     RETURN ExecutionSuccess(plan)
 END
 
@@ -390,6 +433,50 @@ BEGIN
     IF constraints.summary_every_n IS NULL THEN RETURN FALSE END IF
     RETURN step_index MOD constraints.summary_every_n = 0
 END
+
+FUNCTION RegisterUserCheckpoints(user_defs, bounds)
+BEGIN
+    IF user_defs IS NULL THEN RETURN [] END IF
+    RETURN NormalizeCheckpoints(user_defs, bounds)
+END
+
+FUNCTION EvaluateUserCheckpoints(event, context, checkpoints, constraints)
+BEGIN
+    IF checkpoints IS NULL OR Size(checkpoints) = 0 THEN RETURN CONTINUE END IF
+    matches = SelectCheckpointsForEvent(checkpoints, event)
+    FOR EACH cp IN matches DO
+        IF ShouldTriggerCheckpoint(cp, context) THEN
+            EmitCheckpointPrompt(cp, context)
+            IF ShouldHaltForCheckpoint(cp) THEN
+                decision = WaitForApprovalOrTimeout(cp.timeout OR constraints.approval_timeout)
+                RETURN decision
+            END IF
+        END IF
+    END FOR
+    RETURN CONTINUE
+END
+
+FUNCTION SelectCheckpointsForEvent(checkpoints, event)
+BEGIN
+    RETURN FILTER(cp IN checkpoints WHERE cp.event = event)
+END
+
+FUNCTION ShouldTriggerCheckpoint(cp, context)
+BEGIN
+    IF cp.condition IS NULL THEN RETURN TRUE END IF
+    RETURN EvaluateCondition(cp.condition, context)
+END
+
+FUNCTION ShouldHaltForCheckpoint(cp)
+BEGIN
+    RETURN cp.mode IN ["require_approval", "pause"]
+END
+
+FUNCTION EmitCheckpointPrompt(cp, context)
+BEGIN
+    CreateHumanVerificationTask({ type: "checkpoint", cp, context })
+    AddToApprovalsQueue({ type: "checkpoint", cp })
+END
 ```
 
 ## Learning and Telemetry Subsystem
@@ -494,6 +581,37 @@ guardrails = {
     auto_halt_conditions: ["low confidence", "cost spike"]
 }
 checkpoints = ["schema changes", "third-party calls", "policy-sensitive content"]
+
+// User-defined checkpoints configuration
+user_defined_checkpoints = [
+    {
+        event: "loop_iteration_start",
+        mode: "require_approval",
+        timeout: 300s,
+        condition: (ctx) => ctx.iteration_count > 20
+    },
+    {
+        event: "goal_selected",
+        mode: "require_approval",
+        condition: (ctx) => IsPolicySensitive(ctx.current_goal)
+    },
+    {
+        event: "before_step",
+        mode: "pause",
+        condition: (ctx) => StepType(ctx.step) IN ["schema_change", "third_party_call"]
+    },
+    {
+        event: "after_step",
+        mode: "require_approval",
+        timeout: 120s,
+        condition: (ctx) => IndicatesRisk(ctx.step_result)
+    },
+    {
+        event: "post_execution",
+        mode: "require_approval",
+        condition: (ctx) => TRUE // always checkpoint before completing the plan
+    }
+]
 ```
 
 This pseudocode algorithm captures the complete flow and decision logic from your Mermaid flowchart and specification, organized into a structured, implementable format.
