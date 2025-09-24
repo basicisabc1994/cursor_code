@@ -64,7 +64,10 @@ def parse(pdf_path, save_markdown, output_dir, use_local):
         task = progress.add_task("[cyan]Initializing pipeline...", total=None)
         
         try:
-            pipeline = RAGPipeline(use_local_embeddings=use_local)
+            effective_use_local = use_local or (not settings.nomic_api_key)
+            if effective_use_local and not use_local:
+                console.print("[yellow]No NOMIC_API_KEY found. Falling back to local embeddings.[/yellow]")
+            pipeline = RAGPipeline(use_local_embeddings=effective_use_local)
             progress.update(task, completed=True)
             
             if pdf_path.is_file():
@@ -142,7 +145,10 @@ def search(k, use_local, llm_provider, llm_model):
     try:
         # Initialize pipeline
         console.print("[cyan]Loading index...[/cyan]")
-        pipeline = RAGPipeline(use_local_embeddings=use_local, llm_provider=llm_provider, llm_model=llm_model)
+        effective_use_local = use_local or (not settings.nomic_api_key)
+        if effective_use_local and not use_local:
+            console.print("[yellow]No NOMIC_API_KEY found. Falling back to local embeddings.[/yellow]")
+        pipeline = RAGPipeline(use_local_embeddings=effective_use_local, llm_provider=llm_provider, llm_model=llm_model)
         
         # Check if index exists
         stats = pipeline.get_statistics()
@@ -206,7 +212,10 @@ def query(k, use_local, llm_provider, llm_model):
     try:
         # Initialize pipeline
         console.print("[cyan]Loading index...[/cyan]")
-        pipeline = RAGPipeline(use_local_embeddings=use_local, llm_provider=llm_provider, llm_model=llm_model)
+        effective_use_local = use_local or (not settings.nomic_api_key)
+        if effective_use_local and not use_local:
+            console.print("[yellow]No NOMIC_API_KEY found. Falling back to local embeddings.[/yellow]")
+        pipeline = RAGPipeline(use_local_embeddings=effective_use_local, llm_provider=llm_provider, llm_model=llm_model)
         
         # Check if index exists
         stats = pipeline.get_statistics()
