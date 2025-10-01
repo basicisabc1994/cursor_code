@@ -19,6 +19,14 @@ from rich.prompt import Prompt, Confirm
 from src.rag_pipeline import RAGPipeline
 from src.config import settings
 
+# Import main solver components
+try:
+    from main_loop.main_solver import main_solving_loop
+    from main_loop.resource_bounds import ResourceBounds
+    MAIN_SOLVER_AVAILABLE = True
+except ImportError:
+    MAIN_SOLVER_AVAILABLE = False
+
 # Setup rich console
 console = Console()
 
@@ -287,6 +295,113 @@ def stats():
     except Exception as e:
         console.print(f"[red]✗ Error: {str(e)}[/red]")
         sys.exit(1)
+
+
+@cli.command()
+@click.option('--objectives', '-o', multiple=True, help='Objectives to achieve (can be specified multiple times)')
+@click.option('--max-iterations', type=int, default=20, help='Maximum number of iterations')
+@click.option('--cost-limit', type=float, default=5.0, help='Maximum cost in USD')
+@click.option('--time-limit', type=int, default=1800, help='Maximum time in seconds')
+@click.option('--interactive', is_flag=True, help='Interactive mode for entering objectives')
+def solve(objectives, max_iterations, cost_limit, time_limit, interactive):
+    """Run the main solving loop to achieve specified objectives."""
+    if not MAIN_SOLVER_AVAILABLE:
+        console.print("[red]✗ Main solver not available. Please check the installation.[/red]")
+        sys.exit(1)
+    
+    # Get objectives
+    if interactive:
+        console.print("[cyan]Interactive Mode - Enter your objectives:[/cyan]")
+        objectives_list = []
+        while True:
+            obj = Prompt.ask(f"Objective {len(objectives_list) + 1} (empty to finish)")
+            if not obj.strip():
+                break
+            objectives_list.append(obj.strip())
+    else:
+        objectives_list = list(objectives) if objectives else ["Complete a demonstration task"]
+    
+    if not objectives_list:
+        console.print("[yellow]No objectives provided. Using default.[/yellow]")
+        objectives_list = ["Complete a demonstration task"]
+    
+    console.print(f"\n[bold]Objectives:[/bold]")
+    for i, obj in enumerate(objectives_list, 1):
+        console.print(f"  {i}. {obj}")
+    
+    # Configure resource bounds
+    resource_bounds = ResourceBounds(
+        max_iterations=max_iterations,
+        cost_limit=cost_limit,
+        time_limit=time_limit,
+        enable_dry_runs=True,
+        sandbox_mode=True
+    )
+    
+    console.print(f"\n[bold]Resource Limits:[/bold]")
+    console.print(f"  Max iterations: {max_iterations}")
+    console.print(f"  Cost limit: ${cost_limit}")
+    console.print(f"  Time limit: {time_limit}s")
+    
+    # Confirm execution
+    if not Confirm.ask("\nProceed with execution?", default=True):
+        console.print("[yellow]Cancelled[/yellow]")
+        return
+    
+    # Run the main solving loop
+    async def run_solver():
+        try:
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                console=console
+            ) as progress:
+                task = progress.add_task("[cyan]Running main solving loop...", total=None)
+                
+                result = await main_solving_loop(
+                    user_objectives=objectives_list,
+                    resource_bounds=resource_bounds
+                )
+                
+                progress.update(task, completed=True)
+            
+            # Display results
+            console.print(f"\n[green]✓[/green] Solving loop completed with status: [bold]{result['status']}[/bold]")
+            
+            # Show summary
+            telemetry = result.get('telemetry', {})
+            console.print(f"\n[bold]Summary:[/bold]")
+            console.print(f"  Total iterations: {telemetry.get('total_iterations', 0)}")
+            console.print(f"  Total time: {telemetry.get('total_time', 0):.2f}s")
+            console.print(f"  Goals completed: {telemetry.get('goals_completed', 0)}")
+            console.print(f"  Goals failed: {telemetry.get('goals_failed', 0)}")
+            
+            # Show resource usage
+            resource_usage = result.get('resource_usage', {})
+            console.print(f"\n[bold]Resource Usage:[/bold]")
+            console.print(f"  Cost: ${resource_usage.get('cost', 0):.4f}")
+            console.print(f"  Tokens: {resource_usage.get('tokens', 0)}")
+            console.print(f"  Escalations: {resource_usage.get('escalations', 0)}")
+            
+            # Show escalations if any
+            escalations = result.get('escalations', [])
+            if escalations:
+                console.print(f"\n[yellow]Escalations ({len(escalations)}):[/yellow]")
+                for esc in escalations[-3:]:  # Show last 3
+                    console.print(f"  • {esc.get('reason', 'unknown')}")
+            
+            # Ask if user wants to see detailed results
+            if Confirm.ask("\nShow detailed results?", default=False):
+                console.print("\n[bold]Detailed Results:[/bold]")
+                console.print(json.dumps(result, indent=2, default=str))
+        
+        except Exception as e:
+            console.print(f"[red]✗ Error: {str(e)}[/red]")
+            sys.exit(1)
+    
+    # Run the async function
+    import asyncio
+    asyncio.run(run_solver())
 
 
 @cli.command()
