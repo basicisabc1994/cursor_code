@@ -14,6 +14,12 @@ langchain-nomic==0.1.3
 sentence-transformers==3.0.1
 ollama==0.3.3
 
+# OpenAI and Agents SDK (for tool-calling / agent runner)
+openai>=1.43.0
+# Optional: OpenAI Agents SDK (installed from GitHub). If you prefer pip installing from git,
+# uncomment the next line. Leave commented if you don't plan to use it.
+# openai-agents @ git+https://github.com/openai/openai-agents-python.git
+
 # CLI and utilities
 click==8.1.7
 rich==13.7.1
