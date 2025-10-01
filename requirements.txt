@@ -24,3 +24,6 @@ pydantic-settings==2.4.0
 # Additional dependencies
 tqdm==4.66.4
 pandas==2.2.2
+
+# OpenAI Agents SDK
+git+https://github.com/openai/openai-agents-python.git
